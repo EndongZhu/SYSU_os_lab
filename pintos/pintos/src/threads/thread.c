@@ -345,10 +345,18 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->priority = new_priority ;
-  int max_priority = list_entry(list_begin(&ready_list), 
-    struct thread, elem)->priority ;
-  if(new_priority < max_priority) thread_yield();
+  enum intr_level old_level = intr_disable() ;
+
+  struct thread *curr = thread_current() ;
+  curr->old_priority = new_priority ;
+
+  if(!curr->donated || new_priority > curr->priority)
+  {
+    curr->priority = new_priority ;
+    thread_yield() ;
+  }
+  
+  intr_set_level (old_level) ;
 }
 
 /* Returns the current thread's priority. */
@@ -475,6 +483,9 @@ init_thread (struct thread *t, const char *name, int priority)
   t->ticks_blocked = 0 ;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
+  t->old_priority = priority ;
+  list_init(&t->locks) ;
+  t->blocked = NULL ;
   list_push_back (&all_list, &t->allelem);
 }
 
@@ -596,17 +607,40 @@ void blocked_thread_check(struct thread* t, void *aux UNUSED)
 {
   if(t->status == THREAD_BLOCKED && t->ticks_blocked != 0)
   {
-	  t->ticks_blocked-- ;
-	  if(t->ticks_blocked == 0)
-	  {
-	    thread_unblock(t) ;
-	  }
+    t->ticks_blocked-- ;
+    if(t->ticks_blocked == 0)
+    {
+      thread_unblock(t) ;
+    }
   }
 }
 
-bool cmp_elem(struct list_elem *x, struct list_elem *y)
+bool cmp_elem(const struct list_elem *x, const struct list_elem *y, void *aux UNUSED)
 {
-    struct thread *thread_a = list_entry(x, struct thread, elem);
-    struct thread *thread_b = list_entry(y, struct thread, elem);
-    return thread_a->priority > thread_b->priority;
+    return list_entry(x, struct thread, elem)->priority > list_entry(y, struct thread, elem)->priority ;
+}
+
+bool
+lock_cmp_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+  return list_entry(a, struct lock, holder_elem)->lock_priority > list_entry(b, struct lock, holder_elem)->lock_priority ;
+}
+
+void
+thread_donate_priority(struct thread *t)
+{
+  enum intr_level old_level = intr_disable() ;
+  if(!list_empty(&t->locks))
+  {
+    list_sort(&t->locks, lock_cmp_priority , NULL) ;
+    int lock_priority = list_entry(list_front(&t->locks), struct lock, holder_elem)->lock_priority ;
+    if(lock_priority > t->old_priority)
+    {
+      t->priority = lock_priority ;
+    }
+  }
+  list_remove(&t->elem) ;
+  list_insert_ordered(&ready_list, &t->elem, cmp_elem, NULL) ;
+
+  intr_set_level(old_level) ;
 }
