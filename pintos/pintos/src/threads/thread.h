@@ -89,7 +89,6 @@ struct thread
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
-
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
@@ -98,6 +97,7 @@ struct thread
     uint32_t *pagedir;                  /* Page directory. */
 #endif
 
+    int ticks_blocked;
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
@@ -138,4 +138,6 @@ void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
+void blocked_thread_check(struct thread* t , void *aux UNUSED);
+bool cmp_elem(struct list_elem *, struct list_elem *);
 #endif /* threads/thread.h */
